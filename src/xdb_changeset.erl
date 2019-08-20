@@ -43,11 +43,15 @@
   delete_change/2,
   validate_change/3,
   validate_required/2,
+  validate_required/3,
   validate_inclusion/3,
+  validate_inclusion/4,
   validate_number/3,
   validate_integer/2,
+  validate_integer/3,
   validate_length/3,
-  validate_format/3
+  validate_format/3,
+  validate_format/4
 ]).
 
 -import(xdb_schema_type, [cast_field_name/1]).
@@ -273,9 +277,14 @@ validate_change(#{changes := Changes, errors := Errors} = Changeset, Field, Vali
   end.
 
 -spec validate_required(t(), [atom()]) -> t().
-validate_required(#{required := Required, errors := Errors} = CS, Fields) ->
+validate_required(CS, Fields) ->
+  validate_required(CS, Fields, []).
+
+-spec validate_required(t(), [atom()], xdb_lib:keyword()) -> t().
+validate_required(#{required := Required, errors := Errors} = CS, Fields, Opts) ->
+  {ErrorOpts, _} = take_error_opts(Opts),
   NewErrors = [
-    {F, {<<"can't be blank">>, [{validation, required}]}}
+    {F, {<<"can't be blank">>, [{validation, required} | ErrorOpts]}}
     || F <- Fields, is_missing(CS, F), ensure_field_exists(CS, F), is_nil(fetch(F, Errors))
   ],
 
@@ -286,47 +295,58 @@ validate_required(#{required := Required, errors := Errors} = CS, Fields) ->
 
 -spec validate_inclusion(t(), atom(), [term()]) -> t().
 validate_inclusion(Changeset, Field, Enum) ->
+  validate_inclusion(Changeset, Field, Enum, []).
+
+-spec validate_inclusion(t(), atom(), [term()], xdb_lib:keyword()) -> t().
+validate_inclusion(Changeset, Field, Enum, Opts) ->
+  {ErrorOpts, _} = take_error_opts(Opts),
   validate_change(Changeset, Field, fun(_, Value) ->
     case lists:member(Value, Enum) of
       true  -> [];
-      false -> [{Field, {<<"is invalid">>, [{validation, inclusion}]}}]
+      false -> [{Field, {<<"is invalid">>, [{validation, inclusion} | ErrorOpts]}}]
     end
   end).
 
 -spec validate_number(t(), atom(), xdb_lib:keyword()) -> t().
 validate_number(Changeset, Field, Opts) ->
   validate_change(Changeset, Field, fun(TargetField, Value) ->
+    {ErrorOpts, NewOpts} = take_error_opts(Opts),
     hd([begin
       case maps:find(SpecKey, number_validators(TargetValue)) of
         {ok, {SpecFun, Message}} ->
-          validate_number(TargetField, Value, Message, SpecFun, TargetValue);
+          validate_number(TargetField, Value, Message, SpecFun, TargetValue, ErrorOpts);
         error ->
           error({badarg, SpecKey})
       end
-    end || {SpecKey, TargetValue} <- Opts])
+    end || {SpecKey, TargetValue} <- NewOpts])
   end).
 
 %% @private
-validate_number(Field, Value, Message, SpecFun, TargetValue) ->
+validate_number(Field, Value, Message, SpecFun, TargetValue, ErrorOpts) ->
   case SpecFun(Value, TargetValue) of
     true  -> [];
-    false -> [{Field, {Message, [{validation, number}]}}]
+    false -> [{Field, {Message, [{validation, number} | ErrorOpts]}}]
   end.
-
 
 -spec validate_integer(t(), atom()) -> t().
 validate_integer(Changeset, Key) ->
+  validate_integer(Changeset, Key, []).
+
+-spec validate_integer(t(), atom(), xdb_lib:keyword()) -> t().
+validate_integer(Changeset, Key, Opts) ->
+  {ErrorOpts, _} = take_error_opts(Opts),
   case is_integer(get_field(Changeset, Key)) of
     true  -> Changeset;
-    false -> add_error(Changeset, Key, <<"must be integer">>)
+    false -> add_error(Changeset, Key, <<"must be integer">>, ErrorOpts)
   end.
 
 -spec validate_length(t(), atom(), xdb_lib:keyword()) -> t().
 validate_length(Changeset, Field, Opts) ->
   validate_change(Changeset, Field, fun(_, Value) ->
-    case do_validate_length(length_validators(), Opts, byte_size(Value), undefined) of
+    {ErrorOpts, NewOpts} = take_error_opts(Opts),
+    case do_validate_length(length_validators(), NewOpts, byte_size(Value), undefined) of
       undefined -> [];
-      Message   -> [{Field, {Message, [{validation, length}]}}]
+      Message   -> [{Field, {Message, [{validation, length} | ErrorOpts]}}]
     end
   end).
 
@@ -366,9 +386,14 @@ too_long(_Length, Value) ->
 
 -spec validate_format(t(), atom(), binary()) -> t().
 validate_format(Changeset, Field, Format) ->
+  validate_format(Changeset, Field, Format, []).
+
+-spec validate_format(t(), atom(), binary(), xdb_lib:keyword()) -> t().
+validate_format(Changeset, Field, Format, Opts) ->
   validate_change(Changeset, Field, fun(_, Value) ->
+    {ErrorOpts, _} = take_error_opts(Opts),
     case re:run(Value, Format) of
-      nomatch -> [{Field, {<<"has invalid format">>, [{validation, format}]}}];
+      nomatch -> [{Field, {<<"has invalid format">>, [{validation, format} | ErrorOpts]}}];
       _       -> []
     end
   end).
@@ -494,3 +519,9 @@ length_validators() ->
 %% @private
 text(Msg, Args) ->
   iolist_to_binary(io_lib:format(Msg, Args)).
+
+take_error_opts(Opts) ->
+  case lists:keytake(error_opts, 1, Opts) of
+    false -> {[], Opts};
+    {_, ErrorOpts, NewOpts} -> {[ErrorOpts], NewOpts}
+  end.

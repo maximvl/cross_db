@@ -99,12 +99,14 @@ t_add_error(_Config) ->
     default_person(),
     person:schema(_),
     xdb_changeset:cast(_, ?PERSON, ?PERMITTED),
-    xdb_changeset:add_error(_, status, <<"Invalid">>)),
+    xdb_changeset:add_error(_, status, <<"Invalid">>, error_opts())),
 
   %% validate errors
   false = xdb_changeset:is_valid(CS),
   1 = length(xdb_changeset:errors(CS)),
-  _ = validate_cs_errors(CS, [status]),
+  _ = validate_cs_errors(CS, [
+    {status,{<<"Invalid">>,[{error_opts,#{code => 42200}}]}}
+  ]),
 
   ok.
 
@@ -141,7 +143,7 @@ t_cast(_Config) ->
   %% validate errors
   false = xdb_changeset:is_valid(CS),
   1 = length(xdb_changeset:errors(CS)),
-  _ = validate_cs_errors(CS, [age]),
+  _ = validate_cs_errors(CS, [{age,{<<"is invalid">>,[{type,integer},{validation,cast}]}}]),
 
   CS1 = [pipe](
     PersonSchema,
@@ -326,13 +328,18 @@ t_validate_required(_Config) ->
   CS2 = [pipe](
     Person,
     xdb_changeset:cast(_, ?PERSON#{age => nil}, ?PERMITTED),
-    xdb_changeset:validate_required(_, [address | ?REQUIRED])),
+    xdb_changeset:validate_required(_, [address | ?REQUIRED], error_opts())),
 
   %% validate errors
   false = xdb_changeset:is_valid(CS2),
   2 = length(xdb_changeset:errors(CS2)),
-  _ = validate_cs_errors(CS2, [address, age]),
-
+  _ = validate_cs_errors(CS2, [
+    {address, {<<"can't be blank">>,[
+      {validation, required},
+      {error_opts, #{code => 42200}}
+    ]}},
+    {age, {<<"is invalid">>, [{type,integer}, {validation,cast}]}}
+  ]),
   %% should fails
   assert_error(fun() ->
     [pipe](
@@ -365,12 +372,17 @@ t_validate_inclusion(_Config) ->
     Person,
     xdb_changeset:cast(_, ?PERSON#{status => <<"invalid">>}, ?PERMITTED),
     xdb_changeset:validate_required(_, ?REQUIRED),
-    xdb_changeset:validate_inclusion(_, status, Statuses)),
+    xdb_changeset:validate_inclusion(_, status, Statuses, error_opts())),
 
   %% validate errors
   false = xdb_changeset:is_valid(CS2),
   1 = length(xdb_changeset:errors(CS2)),
-  _ = validate_cs_errors(CS2, [status]),
+  _ = validate_cs_errors(CS2, [
+    {status,{<<"is invalid">>,[
+      {validation,inclusion},
+      {error_opts, #{code=>42200}}
+    ]}}
+  ]),
 
   ok.
 
@@ -481,11 +493,14 @@ t_validate_format(_Config) ->
     Person,
     xdb_changeset:cast(_, ?PERSON, ?PERMITTED),
     xdb_changeset:validate_required(_, ?REQUIRED),
-    xdb_changeset:validate_format(_, last_name, <<"^Doe">>)),
+    xdb_changeset:validate_format(_, last_name, <<"^Doe">>, error_opts())),
 
   %% validate errors
   false = xdb_changeset:is_valid(CS2),
-  [{last_name, {<<"has invalid format">>, [{validation, format}]}}] = xdb_changeset:errors(CS2),
+  [{last_name, {<<"has invalid format">>, [
+    {validation, format},
+    {error_opts, #{code := 42200}}
+  ]}}] = xdb_changeset:errors(CS2),
 
   ok.
 
@@ -518,4 +533,12 @@ validate_cs(CS, ParamsToCheck) ->
 %% @private
 validate_cs_errors(CS, ErrorKeys) ->
   Errors = xdb_changeset:errors(CS),
-  [true = lists:keymember(K, 1, Errors) || K <- ErrorKeys].
+  lists:foreach(fun
+  ({K, V}) ->
+    {_, {K, V}, _} = lists:keytake(K, 1, Errors);
+  (K) ->
+    true = lists:keymember(K, 1, Errors)
+  end, ErrorKeys).
+
+error_opts() ->
+  [{error_opts, #{code => 42200}}].
