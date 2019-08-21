@@ -523,5 +523,5 @@ text(Msg, Args) ->
 take_error_opts(Opts) ->
   case lists:keytake(error_opts, 1, Opts) of
     false -> {[], Opts};
-    {_, ErrorOpts, NewOpts} -> {[ErrorOpts], NewOpts}
+    {value, ErrorOpts, NewOpts} -> {[ErrorOpts], NewOpts}
   end.
