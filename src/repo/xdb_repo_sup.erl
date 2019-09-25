@@ -28,7 +28,7 @@
   Opts    :: xdb_lib:keyword(),
   Res     :: {ok, pid()} | ignore | {error, term()}.
 start_link(Repo, OtpApp, Adapter, Opts) ->
-  supervisor:start_link({local, Repo}, ?MODULE, {Repo, OtpApp, Adapter, Opts}).
+  supervisor3:start_link({local, Repo}, ?MODULE, {Repo, OtpApp, Adapter, Opts}).
 
 -spec stop(Repo :: xdb_repo:t()) -> ok.
 stop(Repo) when is_atom(Repo) ->
@@ -93,7 +93,30 @@ supervise(Children, SupFlagsMap) ->
 adapter_child_spec(Repo, Adapter, Opts) ->
   case {code:ensure_loaded(Adapter), erlang:function_exported(Adapter, child_spec, 2)} of
     {{module, Adapter}, true} ->
-      Adapter:child_spec(Repo, Opts);
+      {Timeout, Opts1} = get_restart_timeout(Opts),
+      Spec = Adapter:child_spec(Repo, Opts1),
+      supervisor3_child_spec(Timeout, Spec);
     _ ->
       undefined
   end.
+
+%% @private
+supervisor3_child_spec(false, Spec) -> Spec;
+supervisor3_child_spec(RestartTimeout, {Id, Start, Restart, Timeout, Type, Mods}) ->
+  {Id, Start, {Restart, RestartTimeout}, Timeout, Type, Mods}.
+
+%% @private
+get_restart_timeout(Opts) ->
+  case lists:keytake(restart_timeout, 1, Opts) of
+    {value, {restart_timeout, Value}, Opts1} -> {to_int(Value), Opts1};
+    false -> {false, Opts}
+  end.
+
+%% @private
+-spec to_int(binary() | list() | integer()) -> integer().
+to_int(Value) when is_binary(Value) ->
+  binary_to_integer(Value);
+to_int(Value) when is_list(Value) ->
+  list_to_integer(Value);
+to_int(Value) when is_integer(Value) ->
+  Value.
