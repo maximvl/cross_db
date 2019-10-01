@@ -15,9 +15,12 @@ init(Opts) ->
   end.
 
 %% @hidden
-prehook(Action, Data) ->
+prehook(transaction, Data) ->
   ets:info(?ETS) /= undefined andalso
-    ets:insert(?ETS, {erlang:timestamp(), {Action, Data}}).
+     ets:insert(?ETS, {erlang:timestamp(), {transaction, Data}}),
+  Data;
+
+prehook(_, Data) -> Data.
 
 posthook(Action, Data) ->
   ets:info(?ETS) /= undefined andalso

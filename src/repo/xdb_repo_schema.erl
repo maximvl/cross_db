@@ -244,8 +244,21 @@ add_pk_filter(Schema, Filters) ->
 
 %% @private
 exec(Changeset, Adapter, Action, Args) ->
-  Result = apply(Adapter, Action, Args),
+  Args2 = preprocess(Changeset, Action, Args),
+  Result = apply(Adapter, Action, Args2),
   postprocess(Result, Changeset).
+
+%% @private
+preprocess(Changeset, Action, [Repo, Meta, _Changes | Rest] = Args) ->
+  case erlang:function_exported(Repo, prehook, 2) of
+    true ->
+      Updated = Repo:prehook(Action, Changeset),
+      case Action of
+        delete -> Args;
+        _      -> [Repo, Meta, dump_changes(Action, Updated) | Rest]
+      end;
+    false -> Args
+  end.
 
 %% @private
 postprocess({ok, Values}, Changeset) ->
