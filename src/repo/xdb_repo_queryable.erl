@@ -141,16 +141,13 @@ transaction(Repo, Adapter, Fun) ->
   Opts    :: xdb_lib:keyword(),
   Res     :: {ok, any()} | {error, any()} | {error, any(), [tuple()]}.
 transaction(Repo, Adapter, Fun, Opts) when is_function(Fun, 0) ->
-  erlang:function_exported(Repo, prehook, 2) andalso
-    Repo:prehook(transaction, Opts),
+  _ = maybe_run_prehook(Repo, transaction, Opts),
   Result = Adapter:transaction(Repo, Fun, Opts),
-  case {Result, erlang:function_exported(Repo, posthook, 2)} of
-    {{ok, Res}, true} ->
-      Repo:posthook(transaction, Res);
-    _ ->
-      ok
+  Return = case Result of
+    {ok, Res} -> {ok, maybe_run_posthook(Repo, transaction, Res)};
+    _ -> Result
   end,
-  Result.
+  Return.
 
 %%%===================================================================
 %%% Internal functions
@@ -162,11 +159,13 @@ execute(Op, Repo, Adapter, Queryable, Opts) when is_atom(Queryable) ->
   execute(Op, Repo, Adapter, Query, Opts);
 execute(all, Repo, Adapter, #{from := Schema} = Queryable, Opts) ->
   Result = Adapter:execute(Repo, all, get_metadata(Queryable), Queryable, Opts),
-  [Schema:schema(Fields) || Fields <- element(2, Result)];
+  Items = [Schema:schema(Fields) || Fields <- element(2, Result)],
+  maybe_run_posthook(Repo, select, Items);
 execute(Op, Repo, Adapter, #{from := Schema} = Queryable, Opts) ->
   case Adapter:execute(Repo, Op, get_metadata(Queryable), Queryable, Opts) of
     {Count, ResL} when is_list(ResL) ->
-      {Count, [Schema:schema(Fields) || Fields <- ResL]};
+      Items = [Schema:schema(Fields) || Fields <- ResL],
+      {Count, maybe_run_posthook(Repo, Op, Items)};
     {_, undefined} = Res ->
       Res
   end.
@@ -204,3 +203,15 @@ query_for_get(Repo, SchemaMod, Id) ->
 %% @private
 get_metadata(#{from := Queryable, source := Source}) ->
   #{schema => Queryable, source => Source}.
+
+maybe_run_prehook(Repo, Operation, Data) ->
+  case erlang:function_exported(Repo, prehook, 2) of
+    true -> Repo:prehook(Operation, Data);
+    _ -> Data
+  end.
+
+maybe_run_posthook(Repo, Operation, Data) ->
+  case erlang:function_exported(Repo, posthook, 2) of
+    true -> Repo:posthook(Operation, Data);
+    _ -> Data
+  end.
