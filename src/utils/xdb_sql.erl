@@ -231,6 +231,12 @@ parse_conditions({Op, Exprs}, {Values, CleanExprs, Count}) when ?logical_op(Op) 
     [{Op, lists:reverse(NewCleanExprs)} | CleanExprs],
     NewCount
   };
+parse_conditions({_Name, 'in', Value}, {Values, CleanExprs, Count}) when Value == [] ->
+  {
+    Values,
+    [{1, '==', 0} | CleanExprs],
+    Count
+  };
 parse_conditions({Name, 'in', Value}, {Values, CleanExprs, Count}) when is_list(Value) ->
   CountSeq = lists:seq(Count, Count - 1 + length(Value)),
   QMarks = [{'?', C} || C <- CountSeq],
@@ -321,7 +327,9 @@ order_by_clause(SortFields, EscapeFun) ->
 escape(Field) when is_atom(Field) ->
   escape(atom_to_list(Field));
 escape(Field) when is_list(Field) ->
-  lists:flatten(["`", Field, "`"]).
+  lists:flatten(["`", Field, "`"]);
+escape(Field) when is_integer(Field) ->
+  integer_to_list(Field).
 
 -spec slot_question({'?', integer()}) -> string().
 slot_question(_) ->
